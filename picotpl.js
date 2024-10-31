@@ -1,3 +1,4 @@
+"use strict"
 if (document.currentScript && document.currentScript.innerText.length) {
 	// if the script-tag that inclues the tempate engine 
 	// is non-empty that block is evaluated as the initial state
@@ -65,10 +66,10 @@ window.addEventListener("load",(e)=>{
 		// unlink an object from the places it listens at.
 		let unlink = node => {
 			const mb = node[modelBind];
-			mb.d.forEach(d=>{
-				d[listeners].delete(node);
+			mb.dependencies.forEach(dependency=>{
+				dependency[listeners].delete(node);
 			});
-			mb.d.clear();
+			mb.dependencies.clear();
 		}
 		// recursivce unlink (usually on DOM tree-nodes)
 		let unlinkTree = node => {
@@ -124,7 +125,7 @@ window.addEventListener("load",(e)=>{
 				if (dependent && prop!==listeners) {
 					// If we had a dependent, it's registered
 					target[listeners].add(dependent);
-					dependent[modelBind].d.add(recv);
+					dependent[modelBind].dependencies.add(recv);
 				}
 				return target[prop];
 			},
@@ -156,7 +157,7 @@ window.addEventListener("load",(e)=>{
 		// p-model.trim   = "expression"   2 way data-binding with text auto-trim
 		// :innerText = "expression"       the property should be set to the following expression
 		// @event = "handler"              the handler code should be run for the event, the $event arg variable is available.
-		// NOT USED: p-tpl = "id"                    source template id, only the first occurence of each is stored.
+		// NOT USED/impl: p-tpl = "id"               source template id, only the first occurence of each is stored.
 		//                                           text and comments between p-tpl's of the same id are collapsed.
 		
 		let anchorCount = 0;
@@ -170,33 +171,32 @@ window.addEventListener("load",(e)=>{
 			return {f:compileExpr(cre[1]),p:cre[2]};
 		}
 
-		//let co=0;
+		// process is the main function that links together or templates the node-tree according to the data-state
 		const process = (node,scope)=> {
-
 			// element-node
 			if (node.nodeType===1) {
+				// does the element have a 2-way input data-binding.
 				const att=node.attributes["p-model"]
 				if (att) {
-					//console.log("Has model att:",c);
 					const lexpr = {
 						...compileLExpr(att.value),
-						d:new Set()
+						dependencies:new Set()
 					};
 					//console.log(att.value+" evals to "+lexpr.f(scope)[lexpr.p]);
 					let iatt;
 					const tn = node;
 					if ((iatt=tn.attributes["type"]) && iatt.value==="checkbox") {
-						lexpr.u = function(){
+						lexpr.update = function(){
 							unlink(tn);
 							const to = lexpr.f(scope);
 							withDep(tn,()=>tn.checked = to[lexpr.p]);
 						};
-						lexpr.oi = ()=>{
+						lexpr.onInput = ()=>{
 							const to = lexpr.f(scope);
 							to[lexpr.p] = tn.checked;
 						}
 					} else {
-						lexpr.u = function(){
+						lexpr.update = function(){
 							unlink(tn);
 							const to = lexpr.f(scope);
 							withDep(tn,()=>{
@@ -205,13 +205,13 @@ window.addEventListener("load",(e)=>{
 								tn.value = v;
 							});
 						}
-						lexpr.oi = ()=>{
+						lexpr.onInput = ()=>{
 							const to = lexpr.f(scope);
 							to[lexpr.p] = tn.value;
 						}
 					}
 					tn[modelBind]=lexpr;
-					lexpr.u();
+					lexpr.update();
 				}
 				for(let i=0;i<node.attributes.length;i++) {
 					const att = node.attributes[i];
@@ -225,7 +225,7 @@ window.addEventListener("load",(e)=>{
 						const key = att.name.substring(1); 
 						const tnod = att;
 						const expr = compileExpr(att.value);
-						const mb=(tnod[modelBind]={d:new Set(),u:function() {
+						const mb=(tnod[modelBind]={dependencies:new Set(),update:function() {
 							unlink(tnod)
 							let rt = withDep(tnod,()=>{
 								let rt = expr(scope);
@@ -234,25 +234,22 @@ window.addEventListener("load",(e)=>{
 							//console.log(`Setting ${key} to ${rt} on `,node);
 							node[key]=rt;
 						}});
-						mb.u();
+						mb.update();
 					}
 				}
 			}
 
 			for (let curChild=node.firstChild;curChild;curChild=curChild.nextSibling){
-				// co++;
-				// if (co>10000000)
-				// 	return;
-				if (curChild.nodeType===2) {
-					console.log("Attribute in process?!",curChild);
-				}
+				//if (curChild.nodeType===2) {
+				//	console.log("Attribute in process?!",curChild);
+				//}
 				// handle mustache templates within text nodes
 				if (curChild.nodeType===3) {
 					const tnod = curChild;
 					const txt = curChild.textContent;
 					let musre = /{{(.+?)}}/g;
 					if (musre.exec(txt)) {
-						let mb=(tnod[modelBind]={d:new Set(),u:function() {
+						let mb=(tnod[modelBind]={dependencies:new Set(),update:function() {
 							unlink(tnod)
 							let rt = withDep(tnod,()=>musre[Symbol.replace](txt,(m,g1)=>{
 								let expr = compileExpr(g1);
@@ -264,7 +261,7 @@ window.addEventListener("load",(e)=>{
 							if (rt!=tnod.textContent)
 								tnod.textContent=rt;
 						}});
-						mb.u();
+						mb.update();
 					}					
 				}
 				if (curChild.nodeType===1) { // nodetype 1 is element
@@ -360,7 +357,7 @@ window.addEventListener("load",(e)=>{
 						// Now attach modelBind update data to the anchor node that handles creation/destruction
 						// of sub-nodes depending on conditions AND/OR for loop outputs.
 						(anchor[modelBind]={
-							u:function () {
+							update:function () {
 								unlink(anchor)
 
 								// run the condition list until one succeeds and generates the wantedNodes set
@@ -404,8 +401,8 @@ window.addEventListener("load",(e)=>{
 									}
 									// no existing matching element found, create a new node.
 									{
-										if (existingNodes.length==1)
-											console.log(wantedNode," replaces ",existingNodes[0])
+										//if (existingNodes.length==1)
+										//	console.log(wantedNode," replaces ",existingNodes[0])
 										let on = wantedNode[0].cloneNode(true); // make a deep clone of the template.
 										let shadow = {};
 										for (let i=1;i+1<wantedNode.length;i+=2) {
@@ -431,8 +428,8 @@ window.addEventListener("load",(e)=>{
 							},
 							dn:[],    // prev-dom-nodes-list
 							prev:[],  // prev-req-state
-							d:new Set()
-						}).u();
+							dependencies:new Set()
+						}).update();
 
 						curChild = anchor;
 						continue;
@@ -454,7 +451,7 @@ window.addEventListener("load",(e)=>{
 					if (scheduled==mysched)
 						scheduled=null;
 					for(let l of mysched) {
-						l[modelBind].u();
+						l[modelBind].update();
 					}
 				},1);
 			}
@@ -468,8 +465,8 @@ window.addEventListener("load",(e)=>{
 		// We listen to "input" events globally and flag updates on registered nodes only.
 		document.addEventListener("input",e=>{
 			let lexpr = e.target[modelBind];
-			if (!lexpr || !lexpr.oi) return;
-			lexpr.oi();
+			if (!lexpr || !lexpr.onInput) return;
+			lexpr.onInput();
 		});
 
 		// Finally process the entire document body and auto-register nodes.
