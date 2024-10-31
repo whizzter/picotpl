@@ -1,0 +1,76 @@
+<html>
+	<head>
+		<style>
+			.todobody {
+				width:50%;
+				margin-left: auto;
+				margin-right: auto;
+			}
+			.todoaddcont {
+				padding-bottom: 5px;
+				margin-bottom: 5px;
+				border-bottom: solid 1px grey;
+			}
+		</style>
+		<!-- if the script-tag that inclues the tempate engine 
+		     is non-empty that block is evaluated as the initial state -->
+		<script src="picotpl.js" defer>
+			{
+				items:[
+					{done:false,text:"First",lastMod:new Date()},
+					{done:true,text:"item 2",lastMod:new Date()},
+					{done:true,text:"it 3",dates:["2021-12-01"],lastMod:new Date()}
+				],
+				add (text) {
+					this.items.push({done:false,text,lastMod:new Date()});
+				}
+			}
+		</script>
+		<script>
+			function item_add(text) {
+				picoroot.items.push({done:false,text,lastMod:new Date()});
+				picoroot.newtext = "";
+			}
+			function item_remove(item) {
+				picoroot.items = picoroot.items.filter(titem=>titem!==item);
+			}
+			function item_flip(item,offset) {
+				let index = picoroot.items.indexOf(item);
+				let top=Math.min(index,index+offset)
+				let bottom=Math.max(index,index+offset)
+				if (top<0 || bottom>picoroot.items.length) return; // at top or bottom, can't move.
+				picoroot.items.splice(top,0, ...picoroot.items.splice(top,2).reverse() )
+				//console.log(item,index);
+			}
+		</script>
+	</head>
+	<body>
+		<!-- test-comment -->
+		<div class="todobody">
+			<h1>TODO test</h1>
+			<div class="todoaddcont">
+				<input p-model="newtext" placeholder="new item">
+				<button @click="item_add(newtext)">Add</button>
+				<button @click="$root.add(newtext)">Add</button>
+			</div>
+			<div p-empty="items">No items</div>
+			<div p-else p-for="(item,idx) in items">
+				<input type="checkbox" p-model="item.done">
+				<input p-model="item.text">
+				<button @click="item_flip(item,-1)" :disabled="idx==0" >up</button>
+				<button @click="item_flip(item,0)">down</button>
+				<button @click="item_remove(item)">Remove</button>
+				<div p-if="item.text=='1'">N 1</div>
+				<div p-else-if="item.text=='2'">N 2</div>
+				<div p-else p-for="iet in [1,2,3]">{{iet}}</div>
+				<span>Last modified:{{item.lastMod}}</span>
+				<span p-for="date in item.dates">{{date}}</span>
+			</div>
+			<hr>
+			<div p-for="item in items">
+				<input type="checkbox" p-model="item.done">
+				<input p-model="item.text">
+			</div>
+		</div>
+	</body>
+</html>
